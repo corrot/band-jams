@@ -9,7 +9,11 @@ declare global {
 
 function pool(): Pool {
   if (!globalThis.__bjPool) {
-    const url = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+    const url =
+      process.env.DATABASE_URL ||
+      process.env.STORAGE_DATABASE_URL ||
+      process.env.POSTGRES_URL ||
+      process.env.STORAGE_POSTGRES_URL;
     if (!url) throw new Error("DATABASE_URL is not set");
     const local = /localhost|127\.0\.0\.1|host=\/tmp/.test(url);
     globalThis.__bjPool = new Pool({

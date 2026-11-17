@@ -22,7 +22,7 @@ Tables are created automatically on first request; there are no migrations to ru
 
 | Name | What it is |
 | --- | --- |
-| `DATABASE_URL` | Postgres connection string. Set automatically when a Neon database is connected in Vercel. |
+| `DATABASE_URL` or `STORAGE_DATABASE_URL` | Postgres connection string. Set automatically when a Neon database is connected in Vercel. |
 | `BLOB_READ_WRITE_TOKEN` | Set automatically when a Vercel Blob store is connected. |
 | `BAND_PASSWORD` | The shared password everyone types on the login screen. |
 | `SESSION_SECRET` | Long random string that signs login cookies. Changing it logs everyone out. |

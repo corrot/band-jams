@@ -1,11 +1,14 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
+import { Avatar as MuiAvatar, Box, IconButton, LinearProgress, Paper, Stack, Typography } from "@mui/material";
+import PlayArrowRounded from "@mui/icons-material/PlayArrowRounded";
+import PauseRounded from "@mui/icons-material/PauseRounded";
+import CloseRounded from "@mui/icons-material/CloseRounded";
 import { api, fmtTime } from "@/lib/client";
 import type { Member, TrackSummary } from "@/lib/types";
-import { MiniWave } from "./MiniWave";
 
 type BandCtx = {
   me: Member | null;
@@ -38,7 +41,7 @@ const PCtx = createContext<PlayerCtx>({
 });
 export const useDock = () => useContext(PCtx);
 
-export function Providers({ children }: { children: React.ReactNode }) {
+export function BandProvider({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const [me, setMe] = useState<Member | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
@@ -58,7 +61,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   const byId = useMemo(() => Object.fromEntries(members.map((m) => [m.id, m])), [members]);
 
-  // Shared player for list playback.
+  // One shared audio element for playing from the list.
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [track, setTrack] = useState<TrackSummary | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -123,77 +126,117 @@ export function Providers({ children }: { children: React.ReactNode }) {
     [track, playing, time, duration],
   );
 
-  // A track page runs its own player, so pause the dock there.
+  // A track page runs its own full player, so pause the dock there.
   useEffect(() => {
     if (path?.startsWith("/tracks/")) audioRef.current?.pause();
   }, [path]);
 
   return (
     <Ctx.Provider value={{ me, members, byId, refresh }}>
-      <PCtx.Provider value={player}>
-        {children}
-        {track && !path?.startsWith("/tracks/") && !path?.startsWith("/login") && <Dock />}
-      </PCtx.Provider>
+      <PCtx.Provider value={player}>{children}</PCtx.Provider>
     </Ctx.Provider>
   );
 }
 
-function Dock() {
+/** Mini player that floats above the bottom navigation. */
+export function Dock({ bottom }: { bottom: number | string }) {
   const p = useDock();
+  const router = useRouter();
   if (!p.track) return null;
   const dur = p.duration || p.track.duration_sec || 0;
   return (
-    <div className="dock">
-      <div className="wrap">
-        <button className="btn play" onClick={p.toggle} aria-label={p.playing ? "Pause" : "Play"}>
-          {p.playing ? "❚❚" : "▶"}
-        </button>
-        <div style={{ minWidth: 0 }}>
-          <Link href={`/tracks/${p.track.id}`} className="title" style={{ fontWeight: 600, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+    <Paper
+      elevation={8}
+      sx={{
+        position: "fixed",
+        left: { xs: 8, md: "auto" },
+        right: { xs: 8, md: 24 },
+        width: { md: 420 },
+        bottom,
+        zIndex: 1100,
+        borderRadius: 3,
+        overflow: "hidden",
+        border: 1,
+        borderColor: "divider",
+        bgcolor: "rgba(29,32,39,0.97)",
+        backdropFilter: "blur(14px)",
+      }}
+    >
+      <Stack direction="row" spacing={1} sx={{ alignItems: "center", pl: 1, pr: 0.5, py: 0.75 }}>
+        <IconButton
+          onClick={p.toggle}
+          aria-label={p.playing ? "Pause" : "Play"}
+          sx={{ bgcolor: "primary.main", color: "primary.contrastText", "&:hover": { bgcolor: "primary.light" } }}
+        >
+          {p.playing ? <PauseRounded /> : <PlayArrowRounded />}
+        </IconButton>
+        <Box sx={{ flex: 1, minWidth: 0, cursor: "pointer" }} onClick={() => router.push(`/tracks/${p.track!.id}`)}>
+          <Typography variant="subtitle2" noWrap>
             {p.track.title}
-          </Link>
-          <div className="timecode tiny">
-            <b>{fmtTime(p.time)}</b> / {fmtTime(dur)}
-          </div>
-        </div>
-        <div className="dockwave">
-          <MiniWave peaks={p.track.peaks} progress={dur ? p.time / dur : 0} onSeek={(f) => p.seek(f * dur)} height={40} />
-        </div>
-        <div className="row">
-          <button className="btn sm" onClick={p.stop} title="Stop">■ Stop</button>
-        </div>
-      </div>
-    </div>
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ fontVariantNumeric: "tabular-nums" }}>
+            {fmtTime(p.time)} / {fmtTime(dur)}
+          </Typography>
+        </Box>
+        <IconButton onClick={p.stop} aria-label="Close player" size="small">
+          <CloseRounded fontSize="small" />
+        </IconButton>
+      </Stack>
+      <LinearProgress
+        variant="determinate"
+        value={dur ? Math.min(100, (p.time / dur) * 100) : 0}
+        sx={{ height: 3, borderRadius: 0, bgcolor: "transparent" }}
+        onClick={(e) => {
+          const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+          if (dur) p.seek(((e.clientX - r.left) / r.width) * dur);
+        }}
+      />
+    </Paper>
   );
 }
 
-export function Avatar({ id, member, size = 28 }: { id?: number | null; member?: Member | null; size?: number }) {
-  const { byId } = useBand();
-  const m = member ?? (id ? byId[id] : null);
-  const name = m?.name || "?";
-  const initials = name
+function initials(name: string) {
+  return name
     .split(/\s+/)
     .map((w) => w[0])
     .join("")
     .slice(0, 2)
     .toUpperCase();
-  if (m?.avatar_url)
-    // eslint-disable-next-line @next/next/no-img-element
-    return <img className="avatar" src={m.avatar_url} alt={name} title={name} style={{ width: size, height: size }} />;
+}
+
+export function Avatar({ id, member, size = 32 }: { id?: number | null; member?: Partial<Member> | null; size?: number }) {
+  const { byId } = useBand();
+  const m = member ?? (id ? byId[id] : null);
+  const name = m?.name || "?";
   return (
-    <span className="avatar" title={name} style={{ width: size, height: size, background: m?.color || "#555", fontSize: size * 0.4 }}>
-      {initials}
-    </span>
+    <MuiAvatar
+      src={m?.avatar_url || undefined}
+      alt={name}
+      title={name}
+      sx={{ width: size, height: size, fontSize: size * 0.4, fontWeight: 700, bgcolor: m?.color || "grey.700", color: "#111" }}
+    >
+      {initials(name)}
+    </MuiAvatar>
   );
 }
 
-export function MemberName({ id }: { id: number | null | undefined }) {
+export function MemberName({ id, variant = "subtitle2" }: { id: number | null | undefined; variant?: "subtitle2" | "body2" | "caption" }) {
   const { byId } = useBand();
   const m = id ? byId[id] : null;
-  if (!m) return <span className="muted">Former member</span>;
+  if (!m)
+    return (
+      <Typography component="span" variant={variant} color="text.secondary">
+        Former member
+      </Typography>
+    );
   return (
-    <Link href={`/members/${m.id}`} style={{ color: m.color }}>
+    <Typography
+      component={Link}
+      href={`/members/${m.id}`}
+      variant={variant}
+      sx={{ color: m.color, textDecoration: "none", "&:hover": { textDecoration: "underline" } }}
+    >
       {m.name}
-    </Link>
+    </Typography>
   );
 }

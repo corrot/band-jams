@@ -13,9 +13,13 @@ A private web app where the band uploads jam recordings, listens, votes and deci
 - **Profiles**: name, photo, colour, bio and an editable list of instruments and gear.
 - **Track instruments and settings**: who played what on each track, free-text settings, and multiple photos per instrument (for example a processor screen or a pedal board).
 
+## Interface
+
+Built for phones first: bottom navigation (Tracks · Band · Me), a floating upload button, bottom sheets for every form, swipeable filter chips, a mini player that floats above the navigation, and tabs on each track (Bookmarks · Comments · Gear · Connected). On larger screens the same app uses a top navigation bar and dialogs instead of sheets. It can be added to the home screen as an app.
+
 ## Stack
 
-Next.js 15 (App Router) · Postgres (Neon) via `pg` · Vercel Blob for audio and images · wavesurfer.js.
+Next.js 15 (App Router) · MUI (Material UI) dark theme, mobile-first · Postgres (Neon) via `pg` · Vercel Blob for audio and images · wavesurfer.js.
 Tables are created automatically on first request; there are no migrations to run.
 
 ## Environment variables

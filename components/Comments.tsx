@@ -1,21 +1,43 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { api, fmtTime, parseTimeInput, timeAgo, uploadFile } from "@/lib/client";
+import {
+  Box,
+  Button,
+  Chip,
+  IconButton,
+  ListItemIcon,
+  Menu,
+  MenuItem,
+  Popover,
+  Stack,
+  TextField,
+  Typography,
+} from "@mui/material";
+import SendRounded from "@mui/icons-material/SendRounded";
+import MoreHorizRounded from "@mui/icons-material/MoreHorizRounded";
+import EditRounded from "@mui/icons-material/EditRounded";
+import DeleteOutlineRounded from "@mui/icons-material/DeleteOutlineRounded";
+import ReplyRounded from "@mui/icons-material/ReplyRounded";
+import AddReactionOutlined from "@mui/icons-material/AddReactionOutlined";
+import PlayArrowRounded from "@mui/icons-material/PlayArrowRounded";
+import { api, fmtTime, timeAgo, uploadFile } from "@/lib/client";
 import { REACTIONS, type Comment, type Reaction } from "@/lib/types";
 import { Avatar, MemberName, useBand } from "./Band";
-import { AudioAttach, type PendingAudio } from "./AudioAttach";
-import type { Selection } from "./TrackPlayer";
+import { useAudioAttach, type PendingAudio } from "./AudioAttach";
+import { useDialogs, useToast } from "./ui";
 
-type Props = {
+export type CommentProps = {
   trackId: number;
-  comments: Comment[];
   setComments: (fn: (c: Comment[]) => Comment[]) => void;
   onSeek: (start: number, end?: number | null) => void;
   highlight: number | null;
 };
 
-async function postComment(trackId: number, data: { body: string; parent_id?: number; start_sec?: number | null; end_sec?: number | null; audio: PendingAudio | null }) {
+export async function postComment(
+  trackId: number,
+  data: { body: string; parent_id?: number; start_sec?: number | null; end_sec?: number | null; audio: PendingAudio | null },
+) {
   let audio: Record<string, unknown> = {};
   if (data.audio) {
     const { url } = await uploadFile("comments", data.audio.blob, data.audio.name);
@@ -26,177 +48,105 @@ async function postComment(trackId: number, data: { body: string; parent_id?: nu
   });
 }
 
-export function Stamp({ c, onSeek }: { c: { start_sec: number | null; end_sec: number | null }; onSeek: Props["onSeek"] }) {
+export function Stamp({ c, onSeek }: { c: { start_sec: number | null; end_sec: number | null }; onSeek: CommentProps["onSeek"] }) {
   if (c.start_sec == null) return null;
   return (
-    <button className="stamp" onClick={() => onSeek(c.start_sec!, c.end_sec)} title="Play from here">
-      ▶ {fmtTime(c.start_sec)}
-      {c.end_sec != null && `–${fmtTime(c.end_sec)}`}
-    </button>
+    <Chip
+      size="small"
+      color="primary"
+      variant="outlined"
+      icon={<PlayArrowRounded />}
+      label={`${fmtTime(c.start_sec)}${c.end_sec != null ? `–${fmtTime(c.end_sec)}` : ""}`}
+      onClick={() => onSeek(c.start_sec!, c.end_sec)}
+      sx={{ fontFamily: "ui-monospace, Menlo, monospace", height: 24, bgcolor: "rgba(245,165,36,.08)" }}
+    />
   );
 }
 
-/** Composer for a new bookmark (moment or interval) with a note. */
-export function BookmarkComposer({
+/** Chat-style composer: text + mic/attach + send. */
+export function Composer({
   trackId,
-  selection,
-  getTime,
+  parentId,
+  placeholder,
   onCreated,
-  onClear,
+  onCancel,
+  autoFocus,
 }: {
   trackId: number;
-  selection: Selection | null;
-  getTime: () => number;
+  parentId?: number;
+  placeholder?: string;
   onCreated: (c: Comment) => void;
-  onClear: () => void;
+  onCancel?: () => void;
+  autoFocus?: boolean;
 }) {
-  const [start, setStart] = useState("");
-  const [end, setEnd] = useState("");
   const [body, setBody] = useState("");
-  const [audio, setAudio] = useState<PendingAudio | null>(null);
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
+  const toast = useToast();
+  const att = useAudioAttach();
+  const canSend = (body.trim() || att.audio) && !busy && !att.recording;
 
-  useEffect(() => {
-    if (selection) {
-      setStart(fmtTime(selection.start));
-      setEnd(selection.end != null ? fmtTime(selection.end) : "");
-    }
-  }, [selection]);
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    const s = parseTimeInput(start);
-    const en = end.trim() ? parseTimeInput(end) : null;
-    if (s == null) return setErr("Set a start time (m:ss), use “Now” or drag on the waveform");
-    if (en != null && en <= s) return setErr("End must be after start");
-    if (!body.trim()) return setErr("Add a note for the bookmark");
+  async function submit() {
+    if (!canSend) return;
     setBusy(true);
-    setErr("");
     try {
-      const c = await postComment(trackId, { body, start_sec: s, end_sec: en, audio });
-      onCreated(c);
+      onCreated(await postComment(trackId, { body, parent_id: parentId, audio: att.audio }));
       setBody("");
-      setStart("");
-      setEnd("");
-      setAudio(null);
-      onClear();
-    } catch (e: any) {
-      setErr(e.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <form className="composer" onSubmit={submit}>
-      <div className="row wrapy">
-        <label className="field" style={{ width: 96 }}>
-          From
-          <input value={start} placeholder="0:00" onChange={(e) => setStart(e.target.value)} />
-        </label>
-        <label className="field" style={{ width: 96 }}>
-          To (optional)
-          <input value={end} placeholder="—" onChange={(e) => setEnd(e.target.value)} />
-        </label>
-        <div className="row" style={{ alignSelf: "flex-end" }}>
-          <button type="button" className="btn sm" onClick={() => setStart(fmtTime(getTime()))}>
-            Now → From
-          </button>
-          <button type="button" className="btn sm" onClick={() => setEnd(fmtTime(getTime()))}>
-            Now → To
-          </button>
-          {(start || end) && (
-            <button
-              type="button"
-              className="btn ghost sm"
-              onClick={() => {
-                setStart("");
-                setEnd("");
-                onClear();
-              }}
-            >
-              Clear
-            </button>
-          )}
-        </div>
-      </div>
-      <textarea placeholder="What happens here? (e.g. “great riff, make this the chorus”)" value={body} onChange={(e) => setBody(e.target.value)} />
-      <div className="spread">
-        <AudioAttach value={audio} onChange={setAudio} disabled={busy} />
-        <button className="btn primary" disabled={busy}>
-          {busy ? "Saving…" : "🔖 Add bookmark"}
-        </button>
-      </div>
-      {err && <p className="err">{err}</p>}
-    </form>
-  );
-}
-
-function Composer({ trackId, parentId, onCreated, onCancel, autoFocus }: { trackId: number; parentId?: number; onCreated: (c: Comment) => void; onCancel?: () => void; autoFocus?: boolean }) {
-  const [body, setBody] = useState("");
-  const [audio, setAudio] = useState<PendingAudio | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!body.trim() && !audio) return;
-    setBusy(true);
-    setErr("");
-    try {
-      onCreated(await postComment(trackId, { body, parent_id: parentId, audio }));
-      setBody("");
-      setAudio(null);
+      att.clear();
       onCancel?.();
     } catch (e: any) {
-      setErr(e.message);
+      toast(e.message, "error");
     } finally {
       setBusy(false);
     }
   }
+
   return (
-    <form className="composer" onSubmit={submit}>
-      <textarea
-        autoFocus={autoFocus}
-        placeholder={parentId ? "Reply…" : "Say something about this track…"}
-        value={body}
-        onChange={(e) => setBody(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit(e as any);
-        }}
-        style={{ minHeight: parentId ? 48 : 64 }}
-      />
-      <div className="spread">
-        <AudioAttach value={audio} onChange={setAudio} disabled={busy} />
-        <div className="row">
-          {onCancel && (
-            <button type="button" className="btn ghost sm" onClick={onCancel}>
-              Cancel
-            </button>
-          )}
-          <button className="btn primary sm" disabled={busy || (!body.trim() && !audio)}>
-            {busy ? "Posting…" : parentId ? "Reply" : "Comment"}
-          </button>
-        </div>
-      </div>
-      {err && <p className="err">{err}</p>}
-    </form>
+    <Stack spacing={1}>
+      {att.preview}
+      <Stack
+        direction="row"
+       
+        spacing={0.5}
+        sx={{ alignItems: "flex-end", border: 1, borderColor: "divider", borderRadius: 3, pl: 1.5, pr: 0.5, py: 0.5, bgcolor: "rgba(255,255,255,.03)", "&:focus-within": { borderColor: "primary.main" } }}
+      >
+        <TextField
+          variant="standard"
+          multiline
+          maxRows={6}
+          autoFocus={autoFocus}
+          placeholder={placeholder || (parentId ? "Reply…" : "Add a comment…")}
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit();
+            if (e.key === "Escape") onCancel?.();
+          }}
+          slotProps={{ input: { disableUnderline: true, sx: { py: 0.75 } } }}
+        />
+        <Stack direction="row" sx={{ alignItems: "center", pb: 0.25 }}>
+          {att.buttons(busy)}
+          <IconButton color="primary" disabled={!canSend} onClick={submit} aria-label="Send">
+            <SendRounded />
+          </IconButton>
+        </Stack>
+      </Stack>
+      {onCancel && (
+        <Box>
+          <Button size="small" color="inherit" onClick={onCancel}>
+            Cancel
+          </Button>
+        </Box>
+      )}
+    </Stack>
   );
 }
 
 function Reactions({ c, onChange }: { c: Comment; onChange: (r: Reaction[]) => void }) {
   const { me, byId } = useBand();
-  const [open, setOpen] = useState(false);
-  const wrap = useRef<HTMLSpanElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => !wrap.current?.contains(e.target as Node) && setOpen(false);
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, [open]);
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
 
   async function toggle(emoji: string) {
-    setOpen(false);
+    setAnchor(null);
     if (!me) return;
     const prev = c.reactions;
     const next = prev.map((r) => ({ ...r, member_ids: [...r.member_ids] }));
@@ -212,49 +162,52 @@ function Reactions({ c, onChange }: { c: Comment; onChange: (r: Reaction[]) => v
   }
 
   return (
-    <span ref={wrap} style={{ position: "relative", display: "inline-flex", gap: 4, flexWrap: "wrap" }}>
-      {c.reactions.map((r) => (
-        <button
-          key={r.emoji}
-          className={`reaction ${me && r.member_ids.includes(me.id) ? "mine" : ""}`}
-          title={r.member_ids.map((i) => byId[i]?.name || "Someone").join(", ")}
-          onClick={() => toggle(r.emoji)}
-        >
-          {r.emoji} <span className="n">{r.member_ids.length}</span>
-        </button>
-      ))}
-      <button className="reaction" title="React" onClick={() => setOpen((o) => !o)}>
-        ☺+
-      </button>
-      {open && (
-        <span className="picker" style={{ top: 26, left: 0 }}>
+    <>
+      {c.reactions.map((r) => {
+        const mine = !!me && r.member_ids.includes(me.id);
+        return (
+          <Chip
+            key={r.emoji}
+            size="small"
+            label={`${r.emoji} ${r.member_ids.length}`}
+            title={r.member_ids.map((i) => byId[i]?.name || "Someone").join(", ")}
+            onClick={() => toggle(r.emoji)}
+            variant={mine ? "filled" : "outlined"}
+            sx={mine ? { bgcolor: "rgba(245,165,36,.18)", border: 1, borderColor: "primary.main" } : undefined}
+          />
+        );
+      })}
+      <IconButton size="small" aria-label="Add reaction" onClick={(e) => setAnchor(e.currentTarget)} sx={{ color: "text.secondary" }}>
+        <AddReactionOutlined fontSize="small" />
+      </IconButton>
+      <Popover
+        open={!!anchor}
+        anchorEl={anchor}
+        onClose={() => setAnchor(null)}
+        anchorOrigin={{ vertical: "top", horizontal: "left" }}
+        transformOrigin={{ vertical: "bottom", horizontal: "left" }}
+        slotProps={{ paper: { sx: { borderRadius: 99, p: 0.5 } } }}
+      >
+        <Stack direction="row">
           {REACTIONS.map((e) => (
-            <button key={e} onClick={() => toggle(e)}>
+            <IconButton key={e} onClick={() => toggle(e)} sx={{ fontSize: 22, width: 42, height: 42 }}>
               {e}
-            </button>
+            </IconButton>
           ))}
-        </span>
-      )}
-    </span>
+        </Stack>
+      </Popover>
+    </>
   );
 }
 
-function CommentItem({
-  c,
-  replies,
-  trackId,
-  setComments,
-  onSeek,
-  highlight,
-}: {
-  c: Comment;
-  replies: Comment[];
-} & Omit<Props, "comments">) {
+function CommentItem({ c, replies, trackId, setComments, onSeek, highlight }: { c: Comment; replies: Comment[] } & CommentProps) {
   const { me } = useBand();
+  const toast = useToast();
+  const { confirm } = useDialogs();
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(c.body);
   const [replying, setReplying] = useState(false);
-  const [err, setErr] = useState("");
+  const [menu, setMenu] = useState<HTMLElement | null>(null);
   const el = useRef<HTMLDivElement>(null);
   const mine = me?.id === c.member_id;
 
@@ -265,95 +218,132 @@ function CommentItem({
   const patch = (p: Partial<Comment>) => setComments((cs) => cs.map((x) => (x.id === c.id ? { ...x, ...p } : x)));
 
   async function save() {
-    setErr("");
     try {
       const r = await api<Comment>(`comments/${c.id}`, { method: "PATCH", body: { body: text } });
       patch({ body: r.body, edited_at: r.edited_at });
       setEditing(false);
     } catch (e: any) {
-      setErr(e.message);
+      toast(e.message, "error");
     }
   }
   async function remove() {
-    if (!window.confirm(replies.length ? "Delete this comment and its replies?" : "Delete this comment?")) return;
+    setMenu(null);
+    const ok = await confirm({
+      title: c.start_sec != null ? "Delete bookmark?" : "Delete comment?",
+      body: replies.length ? "Its replies will be deleted too." : undefined,
+      confirm: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await api(`comments/${c.id}`, { method: "DELETE" });
       setComments((cs) => cs.filter((x) => x.id !== c.id && x.parent_id !== c.id));
+      toast("Deleted");
     } catch (e: any) {
-      setErr(e.message);
+      toast(e.message, "error");
     }
   }
 
   return (
-    <div className="comment" ref={el} style={highlight === c.id ? { background: "rgba(245,165,36,.06)", borderRadius: 8 } : undefined}>
-      <Avatar id={c.member_id} size={30} />
-      <div style={{ minWidth: 0 }}>
-        <div className="head">
-          <span className="name">
-            <MemberName id={c.member_id} />
-          </span>
+    <Box
+      ref={el}
+      sx={{
+        display: "grid",
+        gridTemplateColumns: "36px minmax(0,1fr)",
+        columnGap: 1.25,
+        py: 1.5,
+        px: 1,
+        mx: -1,
+        borderRadius: 2,
+        transition: "background-color .4s",
+        bgcolor: highlight === c.id ? "rgba(245,165,36,.08)" : "transparent",
+      }}
+    >
+      <Avatar id={c.member_id} size={34} />
+      <Box sx={{ minWidth: 0 }}>
+        <Stack direction="row" spacing={1} sx={{ alignItems: "center", minHeight: 28 }}>
+          <MemberName id={c.member_id} />
           <Stamp c={c} onSeek={onSeek} />
-          <span className="tiny faint" title={new Date(c.created_at).toLocaleString()}>
+          <Typography variant="caption" color="text.disabled" title={new Date(c.created_at).toLocaleString()} noWrap sx={{ flex: 1 }}>
             {timeAgo(c.created_at)}
             {c.edited_at && " · edited"}
-          </span>
-        </div>
+          </Typography>
+          {mine && !editing && (
+            <IconButton size="small" aria-label="More" onClick={(e) => setMenu(e.currentTarget)} sx={{ mr: -0.5 }}>
+              <MoreHorizRounded fontSize="small" />
+            </IconButton>
+          )}
+        </Stack>
+        <Menu anchorEl={menu} open={!!menu} onClose={() => setMenu(null)}>
+          <MenuItem
+            onClick={() => {
+              setMenu(null);
+              setEditing(true);
+            }}
+          >
+            <ListItemIcon>
+              <EditRounded fontSize="small" />
+            </ListItemIcon>
+            Edit
+          </MenuItem>
+          <MenuItem onClick={remove} sx={{ color: "error.main" }}>
+            <ListItemIcon>
+              <DeleteOutlineRounded fontSize="small" color="error" />
+            </ListItemIcon>
+            Delete
+          </MenuItem>
+        </Menu>
+
         {editing ? (
-          <div className="stack tight" style={{ marginTop: 4 }}>
-            <textarea value={text} onChange={(e) => setText(e.target.value)} autoFocus />
-            <div className="row">
-              <button className="btn primary sm" onClick={save}>
+          <Stack spacing={1} sx={{ mt: 0.5 }}>
+            <TextField multiline autoFocus size="small" value={text} onChange={(e) => setText(e.target.value)} />
+            <Stack direction="row" spacing={1}>
+              <Button size="small" variant="contained" onClick={save}>
                 Save
-              </button>
-              <button
-                className="btn ghost sm"
+              </Button>
+              <Button
+                size="small"
+                color="inherit"
                 onClick={() => {
                   setEditing(false);
                   setText(c.body);
                 }}
               >
                 Cancel
-              </button>
-            </div>
-          </div>
+              </Button>
+            </Stack>
+          </Stack>
         ) : (
-          c.body && <div className="body">{c.body}</div>
+          c.body && (
+            <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", mt: 0.25, fontSize: 15 }}>
+              {c.body}
+            </Typography>
+          )
         )}
         {c.audio_url && (
-          <div>
+          <Box sx={{ mt: 1 }}>
             <audio className="inline" src={c.audio_url} controls preload="none" />
-            <div className="tiny faint">
-              🎵 {c.audio_name}
+            <Typography variant="caption" color="text.disabled">
+              {c.audio_name}
               {c.audio_duration ? ` · ${fmtTime(c.audio_duration)}` : ""}
-            </div>
-          </div>
+            </Typography>
+          </Box>
         )}
-        <div className="actions">
+        <Stack direction="row" spacing={0.5} useFlexGap sx={{ alignItems: "center", mt: 0.75, flexWrap: "wrap" }}>
           <Reactions c={c} onChange={(reactions) => patch({ reactions })} />
           {!c.parent_id && (
-            <button className="btn ghost sm" onClick={() => setReplying((r) => !r)}>
+            <Button size="small" color="inherit" startIcon={<ReplyRounded />} onClick={() => setReplying((r) => !r)} sx={{ color: "text.secondary", minWidth: 0 }}>
               Reply
-            </button>
+            </Button>
           )}
-          {mine && !editing && (
-            <>
-              <button className="btn ghost sm" onClick={() => setEditing(true)}>
-                Edit
-              </button>
-              <button className="btn ghost sm danger" onClick={remove}>
-                Delete
-              </button>
-            </>
-          )}
-        </div>
-        {err && <p className="err">{err}</p>}
+        </Stack>
         {(replies.length > 0 || replying) && (
-          <div className="replies">
+          <Box sx={{ mt: 0.5, pl: 1.5, borderLeft: 2, borderColor: "divider" }}>
             {replies.map((r) => (
               <CommentItem key={r.id} c={r} replies={[]} trackId={trackId} setComments={setComments} onSeek={onSeek} highlight={highlight} />
             ))}
             {replying && (
-              <div style={{ paddingTop: 8 }}>
+              <Box sx={{ pt: 1 }}>
                 <Composer
                   trackId={trackId}
                   parentId={c.id}
@@ -361,36 +351,22 @@ function CommentItem({
                   onCancel={() => setReplying(false)}
                   onCreated={(n) => setComments((cs) => [...cs, n])}
                 />
-              </div>
+              </Box>
             )}
-          </div>
+          </Box>
         )}
-      </div>
-    </div>
+      </Box>
+    </Box>
   );
 }
 
-export function CommentList({ items, all, ...rest }: Omit<Props, "comments"> & { items: Comment[]; all: Comment[] }) {
+export function CommentList({ items, all, ...rest }: CommentProps & { items: Comment[]; all: Comment[] }) {
   if (!items.length) return null;
   return (
-    <div>
+    <Box>
       {items.map((c) => (
         <CommentItem key={c.id} c={c} replies={all.filter((r) => r.parent_id === c.id)} {...rest} />
       ))}
-    </div>
-  );
-}
-
-export function Discussion(props: Props) {
-  const top = props.comments.filter((c) => !c.parent_id && c.start_sec == null);
-  return (
-    <div className="stack">
-      <Composer trackId={props.trackId} onCreated={(c) => props.setComments((cs) => [...cs, c])} />
-      {top.length === 0 ? (
-        <p className="muted small">No comments yet.</p>
-      ) : (
-        <CommentList items={[...top].reverse()} all={props.comments} {...props} />
-      )}
-    </div>
+    </Box>
   );
 }

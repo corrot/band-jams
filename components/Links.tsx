@@ -1,99 +1,193 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
+import {
+  Autocomplete,
+  Box,
+  Button,
+  Chip,
+  IconButton,
+  List,
+  ListItem,
+  ListItemButton,
+  ListItemText,
+  MenuItem,
+  Stack,
+  TextField,
+} from "@mui/material";
+import AddLinkRounded from "@mui/icons-material/AddLinkRounded";
+import LinkOffRounded from "@mui/icons-material/LinkOffRounded";
+import LinkRounded from "@mui/icons-material/LinkRounded";
 import { api, fmtDate, fmtTime } from "@/lib/client";
-import { LINK_LABELS, STATUSES, type TrackLink, type TrackSummary } from "@/lib/types";
+import { LINK_LABELS, type TrackLink, type TrackSummary } from "@/lib/types";
+import { StatusChip } from "./StatusChip";
+import { EmptyState, Sheet, useDialogs, useToast } from "./ui";
 
 export function Links({ trackId, links, setLinks }: { trackId: number; links: TrackLink[]; setLinks: (l: TrackLink[]) => void }) {
-  const [adding, setAdding] = useState(false);
-  const [all, setAll] = useState<TrackSummary[] | null>(null);
-  const [other, setOther] = useState("");
-  const [label, setLabel] = useState(LINK_LABELS[0]);
-  const [custom, setCustom] = useState("");
-  const [err, setErr] = useState("");
+  const router = useRouter();
+  const toast = useToast();
+  const { confirm } = useDialogs();
+  const [open, setOpen] = useState(false);
 
-  useEffect(() => {
-    if (adding && !all) api<TrackSummary[]>("tracks").then(setAll).catch((e) => setErr(e.message));
-  }, [adding, all]);
-
-  const linked = new Set(links.map((l) => l.other.id));
-  const options = (all || []).filter((t) => t.id !== trackId && !linked.has(t.id));
-
-  async function add(e: React.FormEvent) {
-    e.preventDefault();
-    if (!other) return;
-    setErr("");
+  async function remove(l: TrackLink) {
+    if (!(await confirm({ title: "Disconnect tracks?", body: `“${l.other.title}” will no longer be linked.`, confirm: "Disconnect", danger: true }))) return;
     try {
-      const lbl = label === "Custom…" ? custom.trim() || "Related" : label;
-      const r = await api(`tracks/${trackId}/links`, { body: { other_id: Number(other), label: lbl } });
-      const o = all!.find((t) => t.id === Number(other))!;
-      setLinks([
-        ...links,
-        { id: r.id, label: r.label, other: { id: o.id, title: o.title, duration_sec: o.duration_sec, status: o.status, recorded_at: o.recorded_at } },
-      ]);
-      setOther("");
-      setAdding(false);
+      await api(`links/${l.id}`, { method: "DELETE" });
+      setLinks(links.filter((x) => x.id !== l.id));
     } catch (e: any) {
-      setErr(e.message);
-    }
-  }
-
-  async function remove(id: number) {
-    try {
-      await api(`links/${id}`, { method: "DELETE" });
-      setLinks(links.filter((l) => l.id !== id));
-    } catch (e: any) {
-      setErr(e.message);
+      toast(e.message, "error");
     }
   }
 
   return (
-    <div className="panel">
-      <div className="spread" style={{ marginBottom: 8 }}>
-        <h2 style={{ margin: 0 }}>Connected tracks</h2>
-        <button className="btn sm" onClick={() => setAdding((a) => !a)}>
-          {adding ? "Cancel" : "+ Connect"}
-        </button>
-      </div>
-      {adding && (
-        <form onSubmit={add} className="stack tight" style={{ marginBottom: 10 }}>
-          <select value={other} onChange={(e) => setOther(e.target.value)}>
-            <option value="">{all ? "Choose a track…" : "Loading tracks…"}</option>
-            {options.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.title} · {fmtDate(t.recorded_at || t.created_at)}
-              </option>
+    <Box>
+      {links.length === 0 ? (
+        <EmptyState
+          icon={<LinkRounded />}
+          title="No connected tracks"
+          body="Link takes of the same song, variations, or parts that belong together."
+          action={
+            <Button variant="contained" startIcon={<AddLinkRounded />} onClick={() => setOpen(true)}>
+              Connect a track
+            </Button>
+          }
+        />
+      ) : (
+        <>
+          <List disablePadding>
+            {links.map((l) => (
+              <ListItem
+                key={l.id}
+                disablePadding
+                secondaryAction={
+                  <IconButton edge="end" aria-label="Disconnect" onClick={() => remove(l)}>
+                    <LinkOffRounded fontSize="small" />
+                  </IconButton>
+                }
+              >
+                <ListItemButton onClick={() => router.push(`/tracks/${l.other.id}`)} sx={{ pr: 7 }}>
+                  <ListItemText
+                    primary={l.other.title}
+                    secondary={
+                      <Stack direction="row" spacing={1} component="span" sx={{ alignItems: "center", mt: 0.5 }}>
+                        <Chip label={l.label} size="small" sx={{ height: 22 }} component="span" />
+                        <span>{fmtTime(l.other.duration_sec)}</span>
+                        <StatusChip status={l.other.status} />
+                      </Stack>
+                    }
+                    slotProps={{ primary: { noWrap: true, sx: { fontWeight: 600 } }, secondary: { component: "div" } }}
+                  />
+                </ListItemButton>
+              </ListItem>
             ))}
-          </select>
-          <div className="row">
-            <select value={label} onChange={(e) => setLabel(e.target.value)}>
-              {[...LINK_LABELS, "Custom…"].map((l) => (
-                <option key={l}>{l}</option>
-              ))}
-            </select>
-            {label === "Custom…" && <input placeholder="Relationship" value={custom} onChange={(e) => setCustom(e.target.value)} />}
-            <button className="btn primary sm" disabled={!other}>
-              Connect
-            </button>
-          </div>
-        </form>
+          </List>
+          <Button startIcon={<AddLinkRounded />} onClick={() => setOpen(true)} sx={{ mt: 1 }}>
+            Connect another track
+          </Button>
+        </>
       )}
-      {links.length === 0 && !adding && <p className="muted small">Link takes of the same song, variations or parts that belong together.</p>}
-      {links.map((l) => (
-        <div className="linkrow" key={l.id}>
-          <span className="chip">{l.label}</span>
-          <Link href={`/tracks/${l.other.id}`} className="grow" style={{ fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {l.other.title}
-          </Link>
-          <span className="tiny muted">{fmtTime(l.other.duration_sec)}</span>
-          <span className={`status ${l.other.status}`}>{STATUSES.find((s) => s.value === l.other.status)?.label}</span>
-          <button className="btn ghost sm" title="Disconnect" onClick={() => remove(l.id)}>
-            ✕
-          </button>
-        </div>
-      ))}
-      {err && <p className="err">{err}</p>}
-    </div>
+      <LinkSheet
+        open={open}
+        onClose={() => setOpen(false)}
+        trackId={trackId}
+        exclude={new Set([trackId, ...links.map((l) => l.other.id)])}
+        onCreated={(l) => setLinks([...links, l])}
+      />
+    </Box>
+  );
+}
+
+function LinkSheet({
+  open,
+  onClose,
+  trackId,
+  exclude,
+  onCreated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  trackId: number;
+  exclude: Set<number>;
+  onCreated: (l: TrackLink) => void;
+}) {
+  const toast = useToast();
+  const [all, setAll] = useState<TrackSummary[] | null>(null);
+  const [other, setOther] = useState<TrackSummary | null>(null);
+  const [label, setLabel] = useState(LINK_LABELS[0]);
+  const [custom, setCustom] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (open && !all) api<TrackSummary[]>("tracks").then(setAll).catch((e) => toast(e.message, "error"));
+  }, [open, all, toast]);
+
+  async function save() {
+    if (!other) return;
+    setBusy(true);
+    try {
+      const lbl = label === "Custom…" ? custom.trim() || "Related" : label;
+      const r = await api(`tracks/${trackId}/links`, { body: { other_id: other.id, label: lbl } });
+      onCreated({
+        id: r.id,
+        label: r.label,
+        other: { id: other.id, title: other.title, duration_sec: other.duration_sec, status: other.status, recorded_at: other.recorded_at },
+      });
+      setOther(null);
+      toast("Tracks connected");
+      onClose();
+    } catch (e: any) {
+      toast(e.message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Sheet
+      open={open}
+      onClose={onClose}
+      title="Connect a track"
+      actions={
+        <>
+          <Button color="inherit" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="contained" disabled={!other || busy} onClick={save}>
+            Connect
+          </Button>
+        </>
+      }
+    >
+      <Stack spacing={2} sx={{ pt: 1 }}>
+        <Autocomplete
+          options={(all || []).filter((t) => !exclude.has(t.id))}
+          loading={!all}
+          value={other}
+          onChange={(_, v) => setOther(v)}
+          getOptionLabel={(t) => t.title}
+          renderOption={(props, t) => {
+            const { key, ...rest } = props as any;
+            return (
+              <li key={key} {...rest}>
+                <ListItemText
+                  primary={t.title}
+                  secondary={`${fmtDate(t.recorded_at || t.created_at)} · ${fmtTime(t.duration_sec)}`}
+                />
+              </li>
+            );
+          }}
+          renderInput={(p) => <TextField {...p} label="Track" placeholder="Search by title" />}
+        />
+        <TextField select label="Relationship" value={label} onChange={(e) => setLabel(e.target.value)}>
+          {[...LINK_LABELS, "Custom…"].map((l) => (
+            <MenuItem key={l} value={l}>
+              {l}
+            </MenuItem>
+          ))}
+        </TextField>
+        {label === "Custom…" && <TextField label="Custom relationship" value={custom} onChange={(e) => setCustom(e.target.value)} />}
+      </Stack>
+    </Sheet>
   );
 }

@@ -59,7 +59,7 @@ export function MiniWave({
     <canvas
       ref={ref}
       className="mini"
-      style={{ height, cursor: onSeek ? "pointer" : "default" }}
+      style={{ width: "100%", height, display: "block", cursor: onSeek ? "pointer" : "default", touchAction: "manipulation" }}
       onClick={(e) => {
         if (!onSeek) return;
         const r = e.currentTarget.getBoundingClientRect();

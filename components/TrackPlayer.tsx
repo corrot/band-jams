@@ -4,6 +4,14 @@ import { useEffect, useImperativeHandle, useRef, useState, forwardRef } from "re
 import type WaveSurferType from "wavesurfer.js";
 import { api, fmtTime } from "@/lib/client";
 import type { Comment, TrackDetail } from "@/lib/types";
+import { Alert, Box, Chip, IconButton, Slider, Stack, Typography } from "@mui/material";
+import PlayArrowRounded from "@mui/icons-material/PlayArrowRounded";
+import PauseRounded from "@mui/icons-material/PauseRounded";
+import StopRounded from "@mui/icons-material/StopRounded";
+import Replay10Rounded from "@mui/icons-material/Replay10Rounded";
+import Forward10Rounded from "@mui/icons-material/Forward10Rounded";
+import ZoomInRounded from "@mui/icons-material/ZoomInRounded";
+import SpeedRounded from "@mui/icons-material/SpeedRounded";
 import { useBand } from "./Band";
 
 export type Selection = { start: number; end: number | null };
@@ -17,8 +25,8 @@ const SEL_ID = "selection";
 
 export const TrackPlayer = forwardRef<
   PlayerHandle,
-  { track: TrackDetail; bookmarks: Comment[]; onSelection: (s: Selection | null) => void; onBookmarkClick: (c: Comment) => void }
->(function TrackPlayer({ track, bookmarks, onSelection, onBookmarkClick }, ref) {
+  { track: TrackDetail; bookmarks: Comment[]; onSelection: (s: Selection | null) => void; onBookmarkClick: (c: Comment) => void; onPlayingChange?: (p: boolean) => void }
+>(function TrackPlayer({ track, bookmarks, onSelection, onBookmarkClick, onPlayingChange }, ref) {
   const { byId } = useBand();
   const box = useRef<HTMLDivElement>(null);
   const timeline = useRef<HTMLDivElement>(null);
@@ -36,6 +44,8 @@ export const TrackPlayer = forwardRef<
   onSel.current = onSelection;
   const onBm = useRef(onBookmarkClick);
   onBm.current = onBookmarkClick;
+  const onPlay = useRef(onPlayingChange);
+  onPlay.current = onPlayingChange;
   const bmById = useRef<Record<string, Comment>>({});
 
   useEffect(() => {
@@ -54,7 +64,7 @@ export const TrackPlayer = forwardRef<
         url: track.file_url,
         peaks: hasPeaks ? [track.peaks!] : undefined,
         duration: hasPeaks ? track.duration_sec! : undefined,
-        height: 110,
+        height: window.matchMedia("(max-width: 899px)").matches ? 72 : 100,
         waveColor: "#4a4f5c",
         progressColor: "#f5a524",
         cursorColor: "#ecebe6",
@@ -109,9 +119,18 @@ export const TrackPlayer = forwardRef<
           }
         }
       });
-      instance.on("play", () => setPlaying(true));
-      instance.on("pause", () => setPlaying(false));
-      instance.on("finish", () => setPlaying(false));
+      instance.on("play", () => {
+        setPlaying(true);
+        onPlay.current?.(true);
+      });
+      instance.on("pause", () => {
+        setPlaying(false);
+        onPlay.current?.(false);
+      });
+      instance.on("finish", () => {
+        setPlaying(false);
+        onPlay.current?.(false);
+      });
       instance.on("timeupdate", (t) => setTime(t));
       instance.on("error", (e) => setLoadErr(String((e as any)?.message || e)));
     })();
@@ -180,81 +199,89 @@ export const TrackPlayer = forwardRef<
   }));
 
   const w = ws.current;
+  const skip = (d: number) => w && w.setTime(Math.min(duration, Math.max(0, w.getCurrentTime() + d)));
   return (
-    <div className="player">
-      <div className="waveform">
+    <Box>
+      <Box sx={{ position: "relative", minHeight: { xs: 92, md: 120 } }}>
         <div ref={box} />
         <div ref={timeline} />
         {!ready && !loadErr && (
-          <div className="tiny faint" style={{ position: "absolute", top: 4, right: 6 }}>
+          <Typography variant="caption" color="text.disabled" sx={{ position: "absolute", top: 4, right: 6 }}>
             {loadPct != null && loadPct < 100 ? `Loading audio ${loadPct}%…` : "Loading…"}
-          </div>
+          </Typography>
         )}
-      </div>
+      </Box>
       {loadErr && (
-        <p className="err">
-          This browser couldn't play the file ({loadErr}). WhatsApp .opus files don't play on some iPhones, so try a desktop browser or{" "}
-          <a href={track.file_url} target="_blank" rel="noreferrer" style={{ textDecoration: "underline" }}>
+        <Alert severity="warning" sx={{ mt: 1 }}>
+          This browser couldn&apos;t play the file. WhatsApp .opus files don&apos;t play on some iPhones; try another browser or{" "}
+          <a href={track.file_url} target="_blank" rel="noreferrer">
             download it
           </a>
           .
-        </p>
+        </Alert>
       )}
-      <div className="transport">
-        <button className="btn play" disabled={!w} onClick={() => w?.playPause()} aria-label={playing ? "Pause" : "Play"}>
-          {playing ? "❚❚" : "▶"}
-        </button>
-        <button className="btn icon" disabled={!w} onClick={() => w?.stop()} title="Stop">
-          ■
-        </button>
-        <button className="btn sm" disabled={!w} onClick={() => w?.setTime(Math.max(0, w.getCurrentTime() - 10))} title="Back 10s">
-          ↺ 10s
-        </button>
-        <button className="btn sm" disabled={!w} onClick={() => w?.setTime(Math.min(duration, w.getCurrentTime() + 10))} title="Forward 10s">
-          10s ↻
-        </button>
-        <span className="timecode">
-          <b>{fmtTime(time)}</b> / {fmtTime(duration)}
-        </span>
-        <span className="grow" />
-        <label className="row tiny muted" title="Zoom">
-          🔍
-          <input
-            type="range"
-            min={0}
-            max={200}
-            value={zoom}
-            style={{ width: 100, padding: 0 }}
-            onChange={(e) => {
-              const v = Number(e.target.value);
-              setZoom(v);
-              try {
-                w?.zoom(v);
-              } catch {
-                /* not ready */
-              }
-            }}
-          />
-        </label>
-        <select
-          value={rate}
-          style={{ width: "auto", padding: "4px 6px" }}
-          title="Playback speed"
-          onChange={(e) => {
-            const v = Number(e.target.value);
-            setRate(v);
-            w?.setPlaybackRate(v, true);
-          }}
+      <Stack direction="row" spacing={{ xs: 0.5, sm: 1 }} sx={{ alignItems: "center", mt: 1 }}>
+        <Typography variant="body2" sx={{ fontFamily: "ui-monospace, Menlo, monospace", minWidth: 52, color: "text.primary" }}>
+          {fmtTime(time)}
+        </Typography>
+        <Box sx={{ flex: 1 }} />
+        <IconButton aria-label="Back 10 seconds" disabled={!w} onClick={() => skip(-10)}>
+          <Replay10Rounded />
+        </IconButton>
+        <IconButton
+          aria-label={playing ? "Pause" : "Play"}
+          disabled={!w}
+          onClick={() => w?.playPause()}
+          sx={{ width: 56, height: 56, bgcolor: "primary.main", color: "primary.contrastText", "&:hover": { bgcolor: "primary.light" }, "&.Mui-disabled": { bgcolor: "action.disabledBackground" } }}
         >
-          {[0.5, 0.75, 1, 1.25, 1.5].map((r) => (
-            <option key={r} value={r}>
-              {r}×
-            </option>
-          ))}
-        </select>
-      </div>
-      <p className="tiny faint">Tip: drag across the waveform to select an interval, then bookmark it below. Click a bookmark to play it.</p>
-    </div>
+          {playing ? <PauseRounded fontSize="large" /> : <PlayArrowRounded fontSize="large" />}
+        </IconButton>
+        <IconButton aria-label="Forward 10 seconds" disabled={!w} onClick={() => skip(10)}>
+          <Forward10Rounded />
+        </IconButton>
+        <Box sx={{ flex: 1 }} />
+        <Typography variant="body2" color="text.secondary" sx={{ fontFamily: "ui-monospace, Menlo, monospace", minWidth: 52, textAlign: "right" }}>
+          {fmtTime(duration)}
+        </Typography>
+      </Stack>
+      <Stack direction="row" spacing={1} sx={{ alignItems: "center", mt: 0.5 }}>
+        <IconButton size="small" aria-label="Stop" disabled={!w} onClick={() => w?.stop()}>
+          <StopRounded fontSize="small" />
+        </IconButton>
+        <ZoomInRounded fontSize="small" sx={{ color: "text.disabled" }} />
+        <Slider
+          size="small"
+          min={0}
+          max={200}
+          value={zoom}
+          aria-label="Zoom"
+          sx={{ flex: 1, maxWidth: 220 }}
+          onChange={(_, v) => {
+            const val = v as number;
+            setZoom(val);
+            try {
+              w?.zoom(val);
+            } catch {
+              /* not ready */
+            }
+          }}
+        />
+        <Box sx={{ flex: 1 }} />
+        <Chip
+          size="small"
+          variant="outlined"
+          icon={<SpeedRounded />}
+          label={`${rate}×`}
+          onClick={() => {
+            const rates = [1, 1.25, 1.5, 0.5, 0.75];
+            const next = rates[(rates.indexOf(rate) + 1) % rates.length];
+            setRate(next);
+            w?.setPlaybackRate(next, true);
+          }}
+          aria-label="Playback speed"
+        />
+      </Stack>
+    </Box>
   );
 });
 

@@ -1,15 +1,22 @@
 import type { Metadata, Viewport } from "next";
+import { AppRouterCacheProvider } from "@mui/material-nextjs/v15-appRouter";
+import { Providers } from "@/components/Providers";
 import "./globals.css";
-import { Providers } from "@/components/Band";
-import { Nav } from "@/components/Nav";
 
 export const metadata: Metadata = {
   title: "Band Jams",
   description: "Our jam sessions: listen, vote and pick what to work on next.",
-  icons: { icon: "/icon.svg" },
+  icons: { icon: "/icon.svg", apple: "/icon.svg" },
+  appleWebApp: { capable: true, title: "Band Jams", statusBarStyle: "black-translucent" },
+  manifest: "/manifest.webmanifest",
 };
 
-export const viewport: Viewport = { width: "device-width", initialScale: 1, themeColor: "#0e0f12" };
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#0e0f12",
+};
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -23,10 +30,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body>
-        <Providers>
-          <Nav />
-          <main className="wrap">{children}</main>
-        </Providers>
+        <AppRouterCacheProvider options={{ enableCssLayer: true }}>
+          <Providers>{children}</Providers>
+        </AppRouterCacheProvider>
       </body>
     </html>
   );

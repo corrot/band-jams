@@ -9,6 +9,12 @@
     "db:migrate": "node scripts/migrate.mjs"
   },
   "dependencies": {
+    "@emotion/cache": "^11.14.0",
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@mui/icons-material": "^9.5.0",
+    "@mui/material": "^9.5.0",
+    "@mui/material-nextjs": "^9.5.0",
     "@vercel/blob": "^2.9.0",
     "next": "^15.5.29",
     "pg": "^8.23.1",

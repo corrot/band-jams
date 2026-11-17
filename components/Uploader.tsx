@@ -1,14 +1,20 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
+import { Box, Button, IconButton, LinearProgress, List, ListItem, Stack, TextField, Typography } from "@mui/material";
+import CloudUploadRounded from "@mui/icons-material/CloudUploadRounded";
+import DeleteOutlineRounded from "@mui/icons-material/DeleteOutlineRounded";
+import CheckCircleRounded from "@mui/icons-material/CheckCircleRounded";
+import ErrorOutlineRounded from "@mui/icons-material/ErrorOutlineRounded";
 import { api, computePeaks, fmtSize, fmtTime, guessRecordedAt, probeDuration, titleFromFile, toLocalInput, uploadFile } from "@/lib/client";
 import type { TrackSummary } from "@/lib/types";
+import { Sheet, useFilePicker, useToast } from "./ui";
 
 type Item = {
   key: string;
   file: File;
   title: string;
-  recorded: string; // datetime-local value
+  recorded: string;
   duration: number | null;
   state: "ready" | "uploading" | "saving" | "done" | "error";
   pct: number;
@@ -17,16 +23,17 @@ type Item = {
 
 const AUDIO_EXT = /\.(mp3|m4a|aac|wav|ogg|opus|oga|flac|webm|mp4|mov|aif|aiff|amr|3gp)$/i;
 
-export function Uploader({ onUploaded, onClose }: { onUploaded: (t: TrackSummary) => void; onClose: () => void }) {
+export function UploadSheet({ open, onClose, onUploaded }: { open: boolean; onClose: () => void; onUploaded: (t: TrackSummary) => void }) {
   const [items, setItems] = useState<Item[]>([]);
   const [over, setOver] = useState(false);
   const [busy, setBusy] = useState(false);
-  const input = useRef<HTMLInputElement>(null);
+  const toast = useToast();
 
   const patch = (key: string, p: Partial<Item>) => setItems((xs) => xs.map((x) => (x.key === key ? { ...x, ...p } : x)));
 
-  function add(files: FileList | File[]) {
-    const list = Array.from(files).filter((f) => f.type.startsWith("audio/") || f.type.startsWith("video/") || AUDIO_EXT.test(f.name));
+  function add(files: File[]) {
+    const list = files.filter((f) => f.type.startsWith("audio/") || f.type.startsWith("video/") || AUDIO_EXT.test(f.name));
+    if (list.length < files.length) toast(`${files.length - list.length} file(s) skipped: not audio`, "info");
     const next = list.map<Item>((f) => ({
       key: `${f.name}-${f.size}-${f.lastModified}-${Math.random()}`,
       file: f,
@@ -39,14 +46,16 @@ export function Uploader({ onUploaded, onClose }: { onUploaded: (t: TrackSummary
     setItems((xs) => [...xs, ...next]);
     next.forEach((it) => probeDuration(it.file).then((d) => patch(it.key, { duration: d })));
   }
+  const picker = useFilePicker("audio/*,video/*,.opus,.ogg,.m4a,.amr", true, add);
 
   async function run() {
     setBusy(true);
+    let ok = 0;
     for (const it of items) {
       if (it.state === "done") continue;
       try {
         patch(it.key, { state: "uploading", pct: 0, error: undefined });
-        const analysis = computePeaks(it.file); // runs while uploading
+        const analysis = computePeaks(it.file);
         const { url, contentType } = await uploadFile("tracks", it.file, it.file.name, (pct) => patch(it.key, { pct }));
         patch(it.key, { state: "saving", pct: 100 });
         const a = await analysis;
@@ -64,26 +73,46 @@ export function Uploader({ onUploaded, onClose }: { onUploaded: (t: TrackSummary
         });
         patch(it.key, { state: "done" });
         onUploaded(t);
+        ok++;
       } catch (e: any) {
         patch(it.key, { state: "error", error: e?.message || "Upload failed" });
       }
     }
     setBusy(false);
+    if (ok) toast(`${ok} track${ok === 1 ? "" : "s"} uploaded`);
   }
 
   const pending = items.filter((i) => i.state !== "done").length;
+  const close = () => {
+    if (busy) return;
+    if (!pending) setItems([]);
+    onClose();
+  };
 
   return (
-    <div className="panel stack">
-      <div className="spread">
-        <h2 style={{ margin: 0 }}>Upload recordings</h2>
-        <button className="btn ghost sm" onClick={onClose} disabled={busy}>
-          Close
-        </button>
-      </div>
-      <div
-        className={`drop ${over ? "over" : ""}`}
-        onClick={() => input.current?.click()}
+    <Sheet
+      open={open}
+      onClose={close}
+      title="Upload recordings"
+      actions={
+        items.length > 0 &&
+        (pending === 0 ? (
+          <Button variant="contained" onClick={() => { setItems([]); onClose(); }}>
+            Done
+          </Button>
+        ) : (
+          <Button variant="contained" size="large" fullWidth disabled={busy} onClick={run} startIcon={<CloudUploadRounded />}>
+            {busy ? "Uploading…" : `Upload ${pending} file${pending === 1 ? "" : "s"}`}
+          </Button>
+        ))
+      }
+    >
+      {picker.input}
+      <Box
+        role="button"
+        tabIndex={0}
+        onClick={picker.open}
+        onKeyDown={(e) => e.key === "Enter" && picker.open()}
         onDragOver={(e) => {
           e.preventDefault();
           setOver(true);
@@ -92,81 +121,71 @@ export function Uploader({ onUploaded, onClose }: { onUploaded: (t: TrackSummary
         onDrop={(e) => {
           e.preventDefault();
           setOver(false);
-          add(e.dataTransfer.files);
+          add(Array.from(e.dataTransfer.files));
+        }}
+        sx={{
+          border: 2,
+          borderStyle: "dashed",
+          borderColor: over ? "primary.main" : "divider",
+          bgcolor: over ? "rgba(245,165,36,.06)" : "transparent",
+          borderRadius: 3,
+          py: items.length ? 2 : 5,
+          px: 2,
+          textAlign: "center",
+          cursor: "pointer",
+          transition: "all .15s",
+          "&:hover": { borderColor: "primary.main" },
         }}
       >
-        <div style={{ fontSize: 26 }}>⬆</div>
-        <div>
-          Drop audio files here or <b style={{ color: "var(--accent)" }}>browse</b>
-        </div>
-        <div className="tiny faint">mp3, m4a, wav, ogg/opus (WhatsApp), flac, webm… several at once is fine</div>
-        <input
-          ref={input}
-          type="file"
-          accept="audio/*,video/*,.opus,.ogg,.m4a,.amr"
-          multiple
-          hidden
-          onChange={(e) => {
-            if (e.target.files) add(e.target.files);
-            e.target.value = "";
-          }}
-        />
-      </div>
+        <CloudUploadRounded sx={{ fontSize: items.length ? 28 : 44, color: "primary.main" }} />
+        <Typography variant="subtitle1">{items.length ? "Add more files" : "Choose audio files"}</Typography>
+        <Typography variant="body2" color="text.secondary">
+          WhatsApp .opus, mp3, m4a, wav, flac… pick several at once
+        </Typography>
+      </Box>
+
       {items.length > 0 && (
-        <div>
-          {items.map((it) => (
-            <div className="upitem" key={it.key}>
-              <div style={{ minWidth: 0 }}>
-                <input
-                  value={it.title}
-                  disabled={it.state !== "ready" && it.state !== "error"}
-                  onChange={(e) => patch(it.key, { title: e.target.value })}
-                />
-                <div className="tiny muted" style={{ marginTop: 4 }}>
-                  {it.file.name} · {fmtSize(it.file.size)} · {fmtTime(it.duration)}
-                  {it.state === "saving" && " · analysing waveform…"}
-                  {it.state === "done" && <span style={{ color: "var(--ok)" }}> · uploaded</span>}
-                  {it.error && <span className="err"> · {it.error}</span>}
-                </div>
+        <List disablePadding sx={{ mt: 1 }}>
+          {items.map((it) => {
+            const locked = it.state !== "ready" && it.state !== "error";
+            return (
+              <ListItem key={it.key} disableGutters divider sx={{ display: "block", py: 1.5 }}>
+                <Stack direction="row" spacing={1} sx={{ alignItems: "flex-start" }}>
+                  <Stack spacing={1.25} sx={{ flex: 1, minWidth: 0 }}>
+                    <TextField size="small" label="Title" value={it.title} disabled={locked} onChange={(e) => patch(it.key, { title: e.target.value })} />
+                    <TextField
+                      size="small"
+                      type="datetime-local"
+                      label="Recorded"
+                      value={it.recorded}
+                      disabled={locked}
+                      onChange={(e) => patch(it.key, { recorded: e.target.value })}
+                      slotProps={{ inputLabel: { shrink: true } }}
+                    />
+                  </Stack>
+                  <Box sx={{ pt: 0.5 }}>
+                    {it.state === "done" ? (
+                      <CheckCircleRounded color="success" />
+                    ) : it.state === "error" ? (
+                      <ErrorOutlineRounded color="error" />
+                    ) : (
+                      <IconButton size="small" aria-label="Remove" disabled={busy} onClick={() => setItems((xs) => xs.filter((x) => x.key !== it.key))}>
+                        <DeleteOutlineRounded fontSize="small" />
+                      </IconButton>
+                    )}
+                  </Box>
+                </Stack>
+                <Typography variant="caption" color={it.error ? "error" : "text.secondary"} component="div" noWrap sx={{ mt: 0.75 }}>
+                  {it.error || `${it.file.name} · ${fmtSize(it.file.size)} · ${fmtTime(it.duration)}${it.state === "saving" ? " · analysing waveform…" : ""}`}
+                </Typography>
                 {(it.state === "uploading" || it.state === "saving") && (
-                  <div className="progress">
-                    <div style={{ width: `${it.pct}%` }} />
-                  </div>
+                  <LinearProgress variant={it.state === "saving" ? "indeterminate" : "determinate"} value={it.pct} sx={{ mt: 0.75 }} />
                 )}
-              </div>
-              <label className="field">
-                Recorded
-                <input
-                  type="datetime-local"
-                  value={it.recorded}
-                  disabled={it.state !== "ready" && it.state !== "error"}
-                  onChange={(e) => patch(it.key, { recorded: e.target.value })}
-                />
-              </label>
-              <button
-                className="btn ghost sm"
-                disabled={busy || it.state === "done"}
-                onClick={() => setItems((xs) => xs.filter((x) => x.key !== it.key))}
-              >
-                Remove
-              </button>
-            </div>
-          ))}
-        </div>
+              </ListItem>
+            );
+          })}
+        </List>
       )}
-      {items.length > 0 && (
-        <div className="row" style={{ justifyContent: "flex-end" }}>
-          {pending === 0 ? (
-            <button className="btn" onClick={() => setItems([])}>
-              Clear list
-            </button>
-          ) : (
-            <button className="btn primary" disabled={busy} onClick={run}>
-              {busy ? "Uploading…" : `Upload ${pending} file${pending === 1 ? "" : "s"}`}
-            </button>
-          )}
-        </div>
-      )}
-    </div>
+    </Sheet>
   );
 }

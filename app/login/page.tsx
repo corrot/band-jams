@@ -1,7 +1,28 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import {
+  Alert,
+  Box,
+  Button,
+  Card,
+  CircularProgress,
+  Divider,
+  IconButton,
+  InputAdornment,
+  List,
+  ListItemAvatar,
+  ListItemButton,
+  ListItemText,
+  Stack,
+  TextField,
+  Typography,
+} from "@mui/material";
+import VisibilityRounded from "@mui/icons-material/VisibilityRounded";
+import VisibilityOffRounded from "@mui/icons-material/VisibilityOffRounded";
+import ChevronRightRounded from "@mui/icons-material/ChevronRightRounded";
 import { api } from "@/lib/client";
+import { Avatar } from "@/components/Band";
 
 type M = { id: number; name: string; color: string; avatar_url: string | null };
 
@@ -9,6 +30,7 @@ export default function LoginPage() {
   const [stage, setStage] = useState<"loading" | "password" | "pick">("loading");
   const [members, setMembers] = useState<M[]>([]);
   const [password, setPassword] = useState("");
+  const [show, setShow] = useState(false);
   const [name, setName] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -53,62 +75,99 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="login">
-      <div className="box panel">
-        <div className="brand" style={{ fontSize: 24 }}>
-          <span className="dot" /> Band Jams
-        </div>
-        {stage === "loading" && <p className="muted">Loading…</p>}
-        {stage === "password" && (
-          <form onSubmit={login} className="stack">
-            <p className="muted">Enter the band password to get in.</p>
-            <input type="password" autoFocus placeholder="Band password" value={password} onChange={(e) => setPassword(e.target.value)} />
-            <button className="btn primary" disabled={busy || !password}>
-              Continue
-            </button>
-          </form>
-        )}
-        {stage === "pick" && (
-          <div className="stack">
-            {members.length > 0 && (
-              <>
-                <p className="muted">Who are you?</p>
-                <div className="pick">
+    <Box
+      sx={{
+        minHeight: "100dvh",
+        display: "grid",
+        placeItems: "center",
+        px: 2,
+        py: "max(24px, env(safe-area-inset-top))",
+        background: "radial-gradient(1200px 500px at 50% -10%, rgba(245,165,36,.14), transparent 60%)",
+      }}
+    >
+      <Stack spacing={3} sx={{ width: "100%", maxWidth: 400 }}>
+        <Stack spacing={1.5} sx={{ alignItems: "center" }}>
+          <Box component="img" src="/icon.svg" alt="" sx={{ width: 64, height: 64, borderRadius: 4, boxShadow: "0 8px 40px rgba(245,165,36,.25)" }} />
+          <Typography variant="h1">Band Jams</Typography>
+          <Typography color="text.secondary" sx={{ textAlign: "center" }}>
+            {stage === "pick" ? "Who's listening?" : "Listen, vote and pick what to play next."}
+          </Typography>
+        </Stack>
+
+        <Card sx={{ p: 2.5, borderRadius: 4 }}>
+          {stage === "loading" && (
+            <Stack sx={{ alignItems: "center", py: 3 }}>
+              <CircularProgress size={28} />
+            </Stack>
+          )}
+
+          {stage === "password" && (
+            <Stack component="form" onSubmit={login} spacing={2}>
+              <TextField
+                autoFocus
+                label="Band password"
+                type={show ? "text" : "password"}
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                slotProps={{
+                  input: {
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <IconButton aria-label={show ? "Hide password" : "Show password"} onClick={() => setShow((s) => !s)} edge="end">
+                          {show ? <VisibilityOffRounded /> : <VisibilityRounded />}
+                        </IconButton>
+                      </InputAdornment>
+                    ),
+                  },
+                }}
+              />
+              <Button type="submit" variant="contained" size="large" disabled={busy || !password}>
+                {busy ? <CircularProgress size={22} color="inherit" /> : "Continue"}
+              </Button>
+            </Stack>
+          )}
+
+          {stage === "pick" && (
+            <Stack spacing={2}>
+              {members.length > 0 && (
+                <List disablePadding sx={{ mx: -1 }}>
                   {members.map((m) => (
-                    <button key={m.id} disabled={busy} onClick={() => pick({ memberId: m.id })}>
-                      {m.avatar_url ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img className="avatar" src={m.avatar_url} alt="" style={{ width: 32, height: 32 }} />
-                      ) : (
-                        <span className="avatar" style={{ width: 32, height: 32, background: m.color }}>
-                          {m.name.slice(0, 1).toUpperCase()}
-                        </span>
-                      )}
-                      <span style={{ fontWeight: 600 }}>{m.name}</span>
-                    </button>
+                    <ListItemButton key={m.id} disabled={busy} onClick={() => pick({ memberId: m.id })} sx={{ py: 1 }}>
+                      <ListItemAvatar>
+                        <Avatar member={m} size={40} />
+                      </ListItemAvatar>
+                      <ListItemText primary={m.name} slotProps={{ primary: { sx: { fontWeight: 600 } } }} />
+                      <ChevronRightRounded color="disabled" />
+                    </ListItemButton>
                   ))}
-                </div>
-              </>
-            )}
-            <form
-              className="stack tight"
-              onSubmit={(e) => {
-                e.preventDefault();
-                pick({ name });
-              }}
-            >
-              <p className="muted">{members.length ? "New here? Create your profile." : "Create your profile to start."}</p>
-              <div className="row">
-                <input placeholder="Your name" value={name} onChange={(e) => setName(e.target.value)} />
-                <button className="btn primary" disabled={busy || !name.trim()}>
+                </List>
+              )}
+              {members.length > 0 && <Divider>or join as someone new</Divider>}
+              <Stack
+                component="form"
+                direction="row"
+                spacing={1}
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  pick({ name });
+                }}
+              >
+                <TextField size="small" label="Your name" value={name} onChange={(e) => setName(e.target.value)} autoFocus={members.length === 0} />
+                <Button type="submit" variant="contained" disabled={busy || !name.trim()}>
                   Join
-                </button>
-              </div>
-            </form>
-          </div>
-        )}
-        {err && <p className="err">{err}</p>}
-      </div>
-    </div>
+                </Button>
+              </Stack>
+            </Stack>
+          )}
+
+          {err && (
+            <Alert severity="error" sx={{ mt: 2 }}>
+              {err}
+            </Alert>
+          )}
+        </Card>
+      </Stack>
+    </Box>
   );
 }

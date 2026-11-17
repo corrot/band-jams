@@ -117,6 +117,22 @@ route("POST", "auth/select", "password", async ({ body }) => {
 
 route("POST", "auth/logout", "none", async () => withCookie({ ok: true }, null));
 
+// Public health check: database reachable, schema in place, storage configured.
+route("GET", "auth/health", "none", async () => {
+  const r = await one<{ members: number; tracks: number }>(
+    "SELECT (SELECT count(*) FROM members)::int AS members, (SELECT count(*) FROM tracks)::int AS tracks",
+  );
+  return {
+    ok: true,
+    database: true,
+    blob: !!process.env.BLOB_READ_WRITE_TOKEN,
+    password: !!process.env.BAND_PASSWORD,
+    sessionSecret: !!process.env.SESSION_SECRET,
+    members: r?.members ?? 0,
+    tracks: r?.tracks ?? 0,
+  };
+});
+
 // ---------- uploads (Vercel Blob client uploads) ----------
 
 route("POST", "upload", "member", async ({ req, body, me }) => {
